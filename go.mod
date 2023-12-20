@@ -11,6 +11,7 @@ require (
 	github.com/golang/protobuf v1.5.3
 	github.com/google/go-cmp v0.5.9
 	github.com/google/uuid v1.3.1
+	github.com/sirupsen/logrus v1.9.3
 	golang.org/x/net v0.16.0
 	golang.org/x/oauth2 v0.13.0
 	golang.org/x/sync v0.4.0

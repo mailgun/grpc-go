@@ -28,11 +28,13 @@ import (
 	"net"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/golang/protobuf/proto"
+	"github.com/sirupsen/logrus"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/hpack"
 	"google.golang.org/grpc/internal/grpclog"
@@ -331,7 +333,7 @@ func NewServerTransport(conn net.Conn, config *ServerConfig) (_ ServerTransport,
 
 // operateHeaders takes action on the decoded headers. Returns an error if fatal
 // error encountered and transport needs to close, otherwise returns nil.
-func (t *http2Server) operateHeaders(ctx context.Context, frame *http2.MetaHeadersFrame, handle func(*Stream)) error {
+func (t *http2Server) operateHeaders(ctx context.Context, frame *http2.MetaHeadersFrame, handle func(*Stream), diagFields logrus.Fields) error {
 	// Acquire max stream ID lock for entire duration
 	t.maxStreamMu.Lock()
 	defer t.maxStreamMu.Unlock()
@@ -359,6 +361,7 @@ func (t *http2Server) operateHeaders(ctx context.Context, frame *http2.MetaHeade
 	buf := newRecvBuffer()
 	s := &Stream{
 		id:               streamID,
+		diagFields:       diagFields,
 		st:               t,
 		buf:              buf,
 		fc:               &inFlow{limit: uint32(t.initialWindowSize)},
@@ -645,7 +648,14 @@ func (t *http2Server) HandleStreams(ctx context.Context, handle func(*Stream)) {
 		}
 		switch frame := frame.(type) {
 		case *http2.MetaHeadersFrame:
-			if err := t.operateHeaders(ctx, frame, handle); err != nil {
+
+			// FIXME: This is just a diagnostic. Remove when done investigating.
+			diagFields := getDiagFields(frame)
+			if diagFields != nil {
+				logrus.WithFields(diagFields).Warn("DIAG: create stream")
+			}
+
+			if err := t.operateHeaders(ctx, frame, handle, diagFields); err != nil {
 				t.Close(err)
 				break
 			}
@@ -667,6 +677,20 @@ func (t *http2Server) HandleStreams(ctx context.Context, handle func(*Stream)) {
 			}
 		}
 	}
+}
+
+func getDiagFields(frame *http2.MetaHeadersFrame) logrus.Fields {
+	var fields logrus.Fields
+	for _, f := range frame.Fields {
+		if !strings.HasPrefix(f.Name, "diag.") {
+			continue
+		}
+		if fields == nil {
+			fields = make(logrus.Fields)
+		}
+		fields[f.Name[len("diag."):]] = f.Value
+	}
+	return fields
 }
 
 func (t *http2Server) getStream(f http2.Frame) (*Stream, bool) {
@@ -766,6 +790,12 @@ func (t *http2Server) handleData(f *http2.DataFrame) {
 	if !ok {
 		return
 	}
+
+	// FIXME: This is just a diagnostic. Remove when done investigating.
+	if s.diagFields != nil {
+		logrus.WithFields(s.diagFields).Warn("DIAG: request received")
+	}
+
 	if s.getState() == streamReadDone {
 		t.closeStream(s, true, http2.ErrCodeStreamClosed, false)
 		return

@@ -32,6 +32,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/internal/channelz"
@@ -239,6 +240,7 @@ const (
 // Stream represents an RPC in the transport layer.
 type Stream struct {
 	id           uint32
+	diagFields   logrus.Fields
 	st           ServerTransport    // nil for client side Stream
 	ct           *http2Client       // nil for server side Stream
 	ctx          context.Context    // the associated context of the stream
